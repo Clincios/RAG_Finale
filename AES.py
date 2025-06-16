@@ -716,7 +716,8 @@ class ChatbotUI:
                 if questions:
                     st.session_state.assessment_questions = questions
                     st.session_state.current_question_index = 0
-                    st.session_state.user_answers = []
+                    # Initialize user_answers with empty strings for all questions
+                    st.session_state.user_answers = [""] * len(questions)
                     st.session_state.assessment_mode = True
                     st.session_state.assessment_start_time = datetime.now()
                     
@@ -732,6 +733,253 @@ class ChatbotUI:
             st.error(f"Error starting assessment: {str(e)}")
             logger.error(f"Assessment generation error: {e}")
     
+    def display_assessment_interface(self):
+        """Display the enhanced assessment interface for taking a test"""
+        st.header("📝 Assessment")
+        
+        # Display current question
+        current_question = st.session_state.assessment_questions[st.session_state.current_question_index]
+        total_questions = len(st.session_state.assessment_questions)
+        current_index = st.session_state.current_question_index
+        
+        # Show progress
+        progress = (current_index + 1) / total_questions
+        st.progress(progress)
+        st.write(f"Question {current_index + 1} of {total_questions}")
+        
+        # Display question
+        st.markdown(f"{current_question['question']}")
+        
+        # Get current answer if it exists
+        current_answer = st.session_state.user_answers[current_index] if current_index < len(st.session_state.user_answers) else ""
+        
+        # Create a container for the answer input and error message
+        with st.container():
+            # Display answer input
+            user_answer = st.text_area(
+                "Your Answer:", 
+                value=current_answer,
+                key=f"answer_input_{current_index}_{st.session_state.current_assessment}",
+                height=150,
+                help="Please provide a detailed answer to this question."
+            )
+            
+            # Add a placeholder for the error message right after the text area
+            error_placeholder = st.empty()
+        
+        # Update the answer in session state immediately
+        st.session_state.user_answers[current_index] = user_answer
+        
+        # Create navigation buttons with three columns for better alignment
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            # Previous button (only show if not on first question)
+            if current_index > 0:
+                if st.button("⬅️ Previous", key=f"prev_btn_{current_index}_{st.session_state.current_assessment}"):
+                    st.session_state.current_question_index -= 1
+                    st.rerun()
+        
+        with col3:
+            # Right-aligned column for main action
+            if current_index < total_questions - 1:
+                # Not the last question - show Next button
+                if st.button(
+                    "➡️ Next Question", 
+                    type="primary", 
+                    key=f"next_btn_{current_index}_{st.session_state.current_assessment}",
+                    help="Click to proceed to the next question"
+                ):
+                    # Validate answer before proceeding
+                    if not user_answer.strip():
+                        error_placeholder.error("⚠️ Please provide an answer before proceeding to the next question.")
+                    else:
+                        st.session_state.current_question_index += 1
+                        st.rerun()
+            else:
+                # Last question - show Finish button
+                if st.button(
+                    "🏁 Finish Assessment", 
+                    type="primary",
+                    key=f"finish_btn_{current_index}_{st.session_state.current_assessment}",
+                    help="Click to finish the assessment"
+                ):
+                    # Validate answer before finishing
+                    if not user_answer.strip():
+                        error_placeholder.error("⚠️ Please provide an answer before finishing the assessment.")
+                    else:
+                        self.calculate_assessment_score()
+    
+    def calculate_assessment_score(self):
+        """Calculate and display the final assessment score with validation"""
+        try:
+            # Validate all questions are answered
+            unanswered_questions = []
+            for i, answer in enumerate(st.session_state.user_answers):
+                if not answer.strip():
+                    unanswered_questions.append(i + 1)
+            
+            if unanswered_questions:
+                st.error(f"Please answer all questions before finishing. Unanswered questions: {', '.join(map(str, unanswered_questions))}")
+                return
+            
+            # Calculate time taken
+            if st.session_state.assessment_start_time:
+                time_taken = datetime.now() - st.session_state.assessment_start_time
+                time_str = str(time_taken).split('.')[0]  # Remove microseconds
+            else:
+                time_str = None
+            
+            # Score each answer
+            scoring_results = []
+            total_score = 0
+            max_total_score = 0
+            
+            with st.spinner("🔄 Calculating your scores..."):
+                for i, (question, user_answer) in enumerate(zip(st.session_state.assessment_questions, st.session_state.user_answers)):
+                    result = st.session_state.scoring_engine.score_answer(
+                        question=question['question'],
+                        correct_answer=question['correct_answer'],
+                        user_answer=user_answer,
+                        vectorstore=st.session_state.vectorstore
+                    )
+                    
+                    scoring_results.append(result)
+                    total_score += result.score
+                    max_total_score += result.max_score
+            
+            # Calculate percentage
+            percentage = (total_score / max_total_score * 100) if max_total_score > 0 else 0
+            
+            # Create assessment result
+            assessment_result = AssessmentResult(
+                assessment_id=st.session_state.current_assessment,
+                document_name=st.session_state.current_document,
+                total_score=total_score,
+                max_total_score=max_total_score,
+                percentage=percentage,
+                question_results=scoring_results,
+                timestamp=datetime.now().isoformat(),
+                time_taken=time_str
+            )
+            
+            # Save results
+            results = st.session_state.scoring_engine.load_scoring_results()
+            results.append(assessment_result)
+            st.session_state.scoring_engine.save_scoring_results(results)
+            
+            # Reset assessment state
+            st.session_state.assessment_mode = False
+            st.session_state.assessment_questions = []
+            st.session_state.user_answers = []
+            st.session_state.current_question_index = 0
+            st.session_state.assessment_start_time = None
+            
+            # Show results with celebration
+            st.success("🎉 Assessment completed successfully!")
+            st.balloons()
+            
+            # Display comprehensive score summary
+            st.header("📊 Assessment Results")
+            
+            # Main metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Final Score", f"{total_score:.1f}/{max_total_score:.1f}")
+            
+            with col2:
+                st.metric("Percentage", f"{percentage:.1f}%")
+            
+            with col3:
+                st.metric("Questions Answered", len(scoring_results))
+            
+            with col4:
+                if time_str:
+                    st.metric("Time Taken", time_str)
+            
+            # Performance grade
+            if percentage >= 90:
+                st.success("🏆 Outstanding Performance! Grade: A")
+            elif percentage >= 80:
+                st.success("🌟 Excellent Work! Grade: B")
+            elif percentage >= 70:
+                st.info("👍 Good Job! Grade: C")
+            elif percentage >= 60:
+                st.warning("📚 Satisfactory. Grade: D")
+            else:
+                st.error("🔄 Needs Improvement. Grade: F")
+            
+            # Show detailed results immediately
+            st.markdown("---")
+            st.header("📝 Detailed Question Analysis")
+            
+            # Quick performance overview
+            correct_count = sum(1 for r in scoring_results if r.score == r.max_score)
+            partial_count = sum(1 for r in scoring_results if 0 < r.score < r.max_score)
+            incorrect_count = sum(1 for r in scoring_results if r.score == 0)
+            
+            overview_col1, overview_col2, overview_col3 = st.columns(3)
+            with overview_col1:
+                st.success(f"✅ Fully Correct: {correct_count}")
+            with overview_col2:
+                st.info(f"🔶 Partially Correct: {partial_count}")
+            with overview_col3:
+                st.error(f"❌ Incorrect: {incorrect_count}")
+            
+            # Display each question result in detail
+            for i, result in enumerate(scoring_results):
+                st.markdown("---")
+                st.subheader(f"Question {i+1}")
+                
+                # Question and scoring
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown(f"**Question:** {result.question}")
+                with col2:
+                    score_color = "success" if result.score == result.max_score else "info" if result.score > 0 else "error"
+                    st.markdown(f"**Score:** {result.score:.1f}/{result.max_score:.1f}", help=f"Question {i+1} Score")
+                
+                # Answers comparison
+                st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Your Answer:</span>", unsafe_allow_html=True)
+                if result.score == result.max_score:
+                    st.success(result.user_answer)
+                elif result.score > 0:
+                    st.info(result.user_answer)
+                else:
+                    st.error(result.user_answer)
+                
+                st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Expected Answer:</span>", unsafe_allow_html=True)
+                st.success(result.correct_answer)
+                
+                # Feedback
+                if hasattr(result, 'feedback') and result.feedback:
+                    st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Feedback:</span>", unsafe_allow_html=True)
+                    feedback_container = st.container()
+                    with feedback_container:
+                        if result.score == result.max_score:
+                            st.success(result.feedback)
+                        elif result.score > 0:
+                            st.info(result.feedback)
+                        else:
+                            st.error(result.feedback)
+            
+            # Action buttons
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📊 View Assessment History", key=f"view_history_{assessment_result.assessment_id}"):
+                    st.session_state.show_history = True
+            
+            with col2:
+                if st.button("🔄 Take Another Assessment", key=f"new_assessment_{assessment_result.assessment_id}"):
+                    st.rerun()
+                    
+        except Exception as e:
+            st.error(f"Error calculating assessment score: {str(e)}")
+            logger.error(f"Assessment scoring error: {e}")
+
     def display_assessment_history(self):
         """Display comprehensive assessment history with analytics"""
         try:
@@ -785,7 +1033,7 @@ class ChatbotUI:
         
         # Document filter
         if selected_doc != "All Documents":
-            filtered_results = [r for r in filtered_results if r.document_name == selected_doc]
+            filtered_results = [r for r in filtered_results if self._get_value(r, 'document_name') == selected_doc]
         
         # Time range filter
         if time_range != "All Time":
@@ -799,7 +1047,7 @@ class ChatbotUI:
             
             filtered_results = [
                 r for r in filtered_results 
-                if datetime.fromisoformat(r.timestamp.replace('Z', '+00:00').replace('+00:00', '')) >= cutoff_date
+                if datetime.fromisoformat(self._get_value(r, 'timestamp').replace('Z', '+00:00').replace('+00:00', '')) >= cutoff_date
             ]
         
         return filtered_results
@@ -810,14 +1058,15 @@ class ChatbotUI:
         
         # Calculate metrics
         total_assessments = len(results)
-        avg_score = statistics.mean([r.percentage for r in results])
-        highest_score = max([r.percentage for r in results])
-        latest_score = results[0].percentage if results else 0
+        percentages = [self._get_value(r, 'percentage') for r in results]
+        avg_score = statistics.mean(percentages)
+        highest_score = max(percentages)
+        latest_score = percentages[0] if results else 0
         
         # Performance improvement calculation
         if len(results) >= 2:
-            recent_scores = [r.percentage for r in sorted(results, key=lambda x: x.timestamp, reverse=True)[:3]]
-            older_scores = [r.percentage for r in sorted(results, key=lambda x: x.timestamp)[:3]]
+            recent_scores = [self._get_value(r, 'percentage') for r in sorted(results, key=lambda x: self._get_value(x, 'timestamp'), reverse=True)[:3]]
+            older_scores = [self._get_value(r, 'percentage') for r in sorted(results, key=lambda x: self._get_value(x, 'timestamp'))[:3]]
             improvement = statistics.mean(recent_scores) - statistics.mean(older_scores)
         else:
             improvement = 0
@@ -838,7 +1087,6 @@ class ChatbotUI:
             st.metric("Latest Score", f"{latest_score:.1f}%")
         
         with col5:
-            improvement_color = "normal" if improvement == 0 else ("normal" if abs(improvement) < 1 else "normal")
             st.metric(
                 "Improvement", 
                 f"{improvement:+.1f}%",
@@ -856,7 +1104,7 @@ class ChatbotUI:
         grades = {"A (90-100%)": 0, "B (80-89%)": 0, "C (70-79%)": 0, "D (60-69%)": 0, "F (<60%)": 0}
         
         for result in results:
-            score = result.percentage
+            score = self._get_value(result, 'percentage')
             if score >= 90:
                 grades["A (90-100%)"] += 1
             elif score >= 80:
@@ -887,12 +1135,12 @@ class ChatbotUI:
             return
         
         # Sort results by timestamp
-        sorted_results = sorted(results, key=lambda x: x.timestamp)
+        sorted_results = sorted(results, key=lambda x: self._get_value(x, 'timestamp'))
         
         # Prepare data for plotting
-        dates = [datetime.fromisoformat(r.timestamp.replace('Z', '+00:00').replace('+00:00', '')) for r in sorted_results]
-        scores = [r.percentage for r in sorted_results]
-        documents = [r.document_name for r in sorted_results]
+        dates = [datetime.fromisoformat(self._get_value(r, 'timestamp').replace('Z', '+00:00').replace('+00:00', '')) for r in sorted_results]
+        scores = [self._get_value(r, 'percentage') for r in sorted_results]
+        documents = [self._get_value(r, 'document_name') for r in sorted_results]
         
         # Create line chart
         fig = go.Figure()
@@ -935,15 +1183,15 @@ class ChatbotUI:
         st.subheader("🧠 Performance Insights")
         
         # Calculate trends
-        recent_scores = [r.percentage for r in sorted_results[-3:]]
-        older_scores = [r.percentage for r in sorted_results[:3]]
+        recent_scores = [self._get_value(r, 'percentage') for r in sorted_results[-3:]]
+        older_scores = [self._get_value(r, 'percentage') for r in sorted_results[:3]]
         
         avg_recent = statistics.mean(recent_scores)
         avg_older = statistics.mean(older_scores)
         improvement = avg_recent - avg_older
         
         # Consistency analysis
-        score_variance = statistics.variance([r.percentage for r in sorted_results]) if len(sorted_results) > 1 else 0
+        score_variance = statistics.variance([self._get_value(r, 'percentage') for r in sorted_results]) if len(sorted_results) > 1 else 0
         
         col1, col2 = st.columns(2)
         
@@ -965,113 +1213,6 @@ class ChatbotUI:
             else:
                 st.warning("🎢 **Variable Performance:** Consider reviewing study methods")
 
-    def display_detailed_assessment_list(self, results):
-        """Display detailed list of all assessments"""
-        st.subheader("📋 Assessment History")
-        
-        # Sort by timestamp (newest first)
-        sorted_results = sorted(results, key=lambda x: x.timestamp, reverse=True)
-        
-        for i, result in enumerate(sorted_results):
-            # Create a more informative expander title
-            date_str = datetime.fromisoformat(result.timestamp.replace('Z', '+00:00').replace('+00:00', '')).strftime('%Y-%m-%d %H:%M')
-            
-            # Performance emoji based on score
-            if result.percentage >= 90:
-                performance_emoji = "🏆"
-            elif result.percentage >= 80:
-                performance_emoji = "🌟"
-            elif result.percentage >= 70:
-                performance_emoji = "👍"
-            elif result.percentage >= 60:
-                performance_emoji = "📚"
-            else:
-                performance_emoji = "🔄"
-            
-            expander_title = f"{performance_emoji} {date_str} | {result.document_name} | {result.percentage:.1f}%"
-            
-            with st.expander(expander_title):
-                # Assessment overview
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Final Score", f"{result.total_score:.1f}/{result.max_total_score:.1f}")
-                
-                with col2:
-                    st.metric("Percentage", f"{result.percentage:.1f}%")
-                
-                with col3:
-                    st.metric("Questions", len(result.question_results))
-                
-                with col4:
-                    if hasattr(result, 'time_taken') and result.time_taken:
-                        st.metric("Duration", result.time_taken)
-                    else:
-                        st.metric("Duration", "Not recorded")
-                
-                # Question-by-question breakdown
-                st.markdown("---")
-                st.markdown("**📝 Question Breakdown:**")
-                
-                # Quick stats
-                correct_answers = sum(1 for qr in result.question_results if qr.score == qr.max_score)
-                partial_answers = sum(1 for qr in result.question_results if 0 < qr.score < qr.max_score)
-                incorrect_answers = sum(1 for qr in result.question_results if qr.score == 0)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.success(f"✅ Correct: {correct_answers}")
-                with col2:
-                    st.info(f"🔶 Partial: {partial_answers}")
-                with col3:
-                    st.error(f"❌ Incorrect: {incorrect_answers}")
-                
-                # Detailed question results
-                for j, question_result in enumerate(result.question_results):
-                    with st.expander(f"Question {j+1}: {question_result.score:.1f}/{question_result.max_score:.1f} points"):
-                        st.markdown(f"**Question:** {question_result.question}")
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.markdown("**Your Answer:**")
-                            st.info(question_result.user_answer)
-                        
-                        with col2:
-                            st.markdown("**Expected Answer:**")
-                            st.success(question_result.correct_answer)
-                        
-                        st.markdown(f"**Score:** {question_result.score:.1f}/{question_result.max_score:.1f}")
-                        
-                        if hasattr(question_result, 'feedback') and question_result.feedback:
-                            st.markdown("**Feedback:**")
-                            if question_result.score == question_result.max_score:
-                                st.success(question_result.feedback)
-                            elif question_result.score > 0:
-                                st.info(question_result.feedback)
-                            else:
-                                st.error(question_result.feedback)
-                
-                # Action buttons
-                st.markdown("---")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    if st.button(f"📥 Download Report", key=f"download_{result.assessment_id}_{i}"):
-                        self.download_assessment_results(result)
-                
-                with col2:
-                    if st.button(f"🔄 Retake Assessment", key=f"retake_{result.assessment_id}_{i}"):
-                        # Reset to assessment mode with same questions
-                        st.session_state.assessment_mode = True
-                        st.session_state.current_question_index = 0
-                        st.session_state.user_answers = []
-                        st.session_state.assessment_start_time = datetime.now()
-                        st.rerun()
-                
-                with col3:
-                    if st.button(f"📊 Compare Progress", key=f"compare_{result.assessment_id}_{i}"):
-                        self.show_progress_comparison(result, results)
-
     def display_question_analytics(self, results):
         """Display analytics about question performance"""
         st.subheader("🎯 Question Performance Analytics")
@@ -1083,17 +1224,24 @@ class ChatbotUI:
         question_stats = defaultdict(lambda: {'total_score': 0, 'max_score': 0, 'count': 0, 'questions': []})
         
         for result in results:
-            for i, qr in enumerate(result.question_results):
+            question_results = self._get_value(result, 'question_results', [])
+            for i, qr in enumerate(question_results):
                 key = f"Q{i+1}"
-                question_stats[key]['total_score'] += qr.score
-                question_stats[key]['max_score'] += qr.max_score
+                
+                # Handle both dict and object access patterns
+                score = self._get_value(qr, 'score', 0)
+                max_score = self._get_value(qr, 'max_score', 1)
+                question = self._get_value(qr, 'question', '')
+                
+                question_stats[key]['total_score'] += score
+                question_stats[key]['max_score'] += max_score
                 question_stats[key]['count'] += 1
-                question_stats[key]['questions'].append(qr.question)
+                question_stats[key]['questions'].append(question)
         
         # Calculate averages and create visualization
         question_performance = []
         for q_num, stats in question_stats.items():
-            if stats['count'] > 0:
+            if stats['count'] > 0 and stats['max_score'] > 0:
                 avg_percentage = (stats['total_score'] / stats['max_score']) * 100
                 question_performance.append({
                     'Question': q_num,
@@ -1101,262 +1249,170 @@ class ChatbotUI:
                     'Attempts': stats['count']
                 })
         
+        # Display the performance data
         if question_performance:
-            # Create bar chart
             df = pd.DataFrame(question_performance)
+            st.dataframe(df, use_container_width=True)
+            
+            # Create a bar chart for question performance
             fig = px.bar(
                 df, 
                 x='Question', 
                 y='Average Score (%)',
-                title="Average Performance by Question Position",
+                title="Average Performance by Question",
                 color='Average Score (%)',
                 color_continuous_scale='RdYlGn'
             )
             fig.update_layout(yaxis=dict(range=[0, 100]))
             st.plotly_chart(fig, use_container_width=True)
-            
-            # Show insights
-            best_question = max(question_performance, key=lambda x: x['Average Score (%)'])
-            worst_question = min(question_performance, key=lambda x: x['Average Score (%)'])
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.success(f"💪 **Strongest Area:** {best_question['Question']} ({best_question['Average Score (%)']:.1f}% avg)")
-            with col2:
-                st.warning(f"📚 **Focus Area:** {worst_question['Question']} ({worst_question['Average Score (%)']:.1f}% avg)")
+        else:
+            st.info("No question performance data available.")
 
-    def show_progress_comparison(self, current_result, all_results):
-        """Show detailed progress comparison"""
-        st.subheader(f"📊 Progress Comparison for {current_result.document_name}")
+    def display_detailed_assessment_list(self, results):
+        """Display a detailed list of all assessments with their results"""
+        st.subheader("📋 Detailed Assessment History")
         
-        # Filter results for same document
-        doc_results = [r for r in all_results if r.document_name == current_result.document_name]
-        doc_results = sorted(doc_results, key=lambda x: x.timestamp)
+        # Sort results by timestamp (most recent first)
+        sorted_results = sorted(results, key=lambda x: self._get_value(x, 'timestamp'), reverse=True)
         
-        if len(doc_results) < 2:
-            st.info("Take more assessments on this document to see progress comparison!")
-            return
-        
-        # Find current result position
-        current_index = next((i for i, r in enumerate(doc_results) if r.assessment_id == current_result.assessment_id), -1)
-        
-        if current_index > 0:
-            previous_result = doc_results[current_index - 1]
-            score_change = current_result.percentage - previous_result.percentage
+        for result in sorted_results:
+            # Create a unique key for each assessment expander
+            expander_key = f"assessment_{self._get_value(result, 'assessment_id')}"
             
-            if score_change > 0:
-                st.success(f"🚀 Improved by {score_change:.1f}% from previous attempt!")
-            elif score_change == 0:
-                st.info("📊 Same score as previous attempt")
-            else:
-                st.warning(f"📉 Decreased by {abs(score_change):.1f}% from previous attempt")
-        
-        # Show trend for this document
-        scores = [r.percentage for r in doc_results]
-        dates = [datetime.fromisoformat(r.timestamp.replace('Z', '+00:00').replace('+00:00', '')) for r in doc_results]
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=scores,
-            mode='lines+markers',
-            name=current_result.document_name,
-            line=dict(width=3),
-            marker=dict(size=10)
-        ))
-        
-        # Highlight current result
-        current_date = datetime.fromisoformat(current_result.timestamp.replace('Z', '+00:00').replace('+00:00', ''))
-        fig.add_trace(go.Scatter(
-            x=[current_date],
-            y=[current_result.percentage],
-            mode='markers',
-            name='Current Assessment',
-            marker=dict(size=15, color='red', symbol='star')
-        ))
-        
-        fig.update_layout(
-            title=f"Progress Trend: {current_result.document_name}",
-            xaxis_title="Date",
-            yaxis_title="Score (%)",
-            yaxis=dict(range=[0, 100])
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    def display_assessment_interface(self):
-        """Display the assessment interface for taking a test"""
-        st.header("📝 Assessment")
-        
-        # Display current question
-        current_question = st.session_state.assessment_questions[st.session_state.current_question_index]
-        
-        # Show progress
-        progress = (st.session_state.current_question_index + 1) / len(st.session_state.assessment_questions)
-        st.progress(progress)
-        st.write(f"Question {st.session_state.current_question_index + 1} of {len(st.session_state.assessment_questions)}")
-        
-        # Display question
-        st.markdown(f"### {current_question['question']}")
-        
-        # Get user answer
-        user_answer = st.text_area("Your Answer:", key=f"answer_{st.session_state.current_question_index}")
-        
-        # Navigation buttons
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col1:
-            if st.session_state.current_question_index > 0:
-                if st.button("⬅️ Previous"):
-                    # Save current answer
-                    if len(st.session_state.user_answers) > st.session_state.current_question_index:
-                        st.session_state.user_answers[st.session_state.current_question_index] = user_answer
-                    else:
-                        st.session_state.user_answers.append(user_answer)
-                    st.session_state.current_question_index -= 1
-                    st.rerun()
-        
-        with col2:
-            if st.button("Submit Answer", type="primary"):
-                # Save answer
-                if len(st.session_state.user_answers) > st.session_state.current_question_index:
-                    st.session_state.user_answers[st.session_state.current_question_index] = user_answer
-                else:
-                    st.session_state.user_answers.append(user_answer)
+            # Format the timestamp
+            try:
+                timestamp_str = self._get_value(result, 'timestamp')
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00').replace('+00:00', ''))
+                formatted_date = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            except:
+                formatted_date = self._get_value(result, 'timestamp', 'Unknown')
+            
+            # Create expander title with key metrics
+            document_name = self._get_value(result, 'document_name', 'Unknown Document')
+            percentage = self._get_value(result, 'percentage', 0)
+            expander_title = f"📝 {document_name} - {formatted_date} - Score: {percentage:.1f}%"
+            
+            with st.expander(expander_title):
+                # Assessment details in columns
+                col1, col2, col3, col4 = st.columns(4)
                 
-                # Move to next question or finish
-                if st.session_state.current_question_index < len(st.session_state.assessment_questions) - 1:
-                    st.session_state.current_question_index += 1
-                    st.rerun()
+                total_score = self._get_value(result, 'total_score', 0)
+                max_total_score = self._get_value(result, 'max_total_score', 1)
+                question_results = self._get_value(result, 'question_results', [])
+                time_taken = self._get_value(result, 'time_taken')
+                
+                with col1:
+                    st.metric("Total Score", f"{total_score:.1f}/{max_total_score:.1f}")
+                
+                with col2:
+                    st.metric("Percentage", f"{percentage:.1f}%")
+                
+                with col3:
+                    st.metric("Questions", len(question_results))
+                
+                with col4:
+                    if time_taken:
+                        st.metric("Time Taken", time_taken)
+                
+                # Performance grade
+                if percentage >= 90:
+                    grade = "A"
+                    grade_color = "success"
+                elif percentage >= 80:
+                    grade = "B"
+                    grade_color = "success"
+                elif percentage >= 70:
+                    grade = "C"
+                    grade_color = "info"
+                elif percentage >= 60:
+                    grade = "D"
+                    grade_color = "warning"
                 else:
-                    # Calculate final score
-                    self.calculate_assessment_score()
-        
-        with col3:
-            if st.button("Finish Assessment"):
-                if st.session_state.current_question_index < len(st.session_state.assessment_questions) - 1:
-                    if st.warning("Are you sure you want to finish? You haven't answered all questions."):
-                        if st.button("Yes, Finish"):
-                            self.calculate_assessment_score()
-                else:
-                    self.calculate_assessment_score()
+                    grade = "F"
+                    grade_color = "error"
+                
+                st.markdown(f"**Grade: {grade}**", help=f"Based on {percentage:.1f}% score")
+                
+                # Question breakdown
+                st.markdown("---")
+                st.markdown("### 📝 Question Breakdown")
+                
+                for i, qr in enumerate(question_results):
+                    # Create a container for each question with a border
+                    with st.container():
+                        # Get question data using the helper method
+                        score = self._get_value(qr, 'score', 0)
+                        max_score = self._get_value(qr, 'max_score', 1)
+                        question = self._get_value(qr, 'question', 'No question available')
+                        user_answer = self._get_value(qr, 'user_answer', 'No answer provided')
+                        correct_answer = self._get_value(qr, 'correct_answer', 'No correct answer available')
+                        feedback = self._get_value(qr, 'feedback', '')
+                        
+                        # Determine question status and color
+                        if score == max_score:
+                            status_icon = "✅"
+                            status_color = "success"
+                        elif score > 0:
+                            status_icon = "🔶"
+                            status_color = "info"
+                        else:
+                            status_icon = "❌"
+                            status_color = "error"
+                        
+                        # Question header with score
+                        st.markdown(f"""
+                        <div style='padding: 10px; border: 1px solid #e0e0e0; border-radius: 5px; margin: 10px 0;'>
+                            <h6 style='margin: 0;'>{status_icon} Question {i+1} - <span style='font-size: 0.9em; font-style: italic;'>Score: {score:.1f}/{max_score:.1f} points</span></h6>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Question content in a wide container
+                        with st.container():
+                            # Question
+                            st.markdown("#### Question:")
+                            st.markdown(f"<div style='padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 5px 0;'>{question}</div>", unsafe_allow_html=True)
+                            
+                            # Answers in a single column
+                            st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Your Answer:</span>", unsafe_allow_html=True)
+                            if status_color == "success":
+                                st.success(user_answer)
+                            elif status_color == "info":
+                                st.info(user_answer)
+                            else:
+                                st.error(user_answer)
+                            
+                            st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Expected Answer:</span>", unsafe_allow_html=True)
+                            st.success(correct_answer)
+                            
+                            # Feedback in full width
+                            if feedback:
+                                st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Feedback:</span>", unsafe_allow_html=True)
+                                feedback_container = st.container()
+                                with feedback_container:
+                                    if status_color == "success":
+                                        st.success(feedback)
+                                    elif status_color == "info":
+                                        st.info(feedback)
+                                    else:
+                                        st.error(feedback)
+                        
+                        # Add spacing between questions
+                        st.markdown("<br>", unsafe_allow_html=True)
 
-    def calculate_assessment_score(self):
-        """Calculate and display the final assessment score"""
-        try:
-            # Calculate time taken
-            if st.session_state.assessment_start_time:
-                time_taken = datetime.now() - st.session_state.assessment_start_time
-                time_str = str(time_taken).split('.')[0]  # Remove microseconds
-            else:
-                time_str = None
+    def _get_value(self, obj, key: str, default=None):
+        """Helper method to get a value from either a dict or object safely.
+        
+        Args:
+            obj: The object or dict to get the value from
+            key: The key or attribute name to access
+            default: Default value to return if key/attribute doesn't exist
             
-            # Score each answer
-            scoring_results = []
-            total_score = 0
-            max_total_score = 0
-            
-            for i, (question, user_answer) in enumerate(zip(st.session_state.assessment_questions, st.session_state.user_answers)):
-                if not user_answer:  # Skip unanswered questions
-                    continue
-                    
-                result = st.session_state.scoring_engine.score_answer(
-                    question=question['question'],
-                    correct_answer=question['correct_answer'],
-                    user_answer=user_answer,
-                    vectorstore=st.session_state.vectorstore
-                )
-                
-                scoring_results.append(result)
-                total_score += result.score
-                max_total_score += result.max_score
-            
-            # Calculate percentage
-            percentage = (total_score / max_total_score * 100) if max_total_score > 0 else 0
-            
-            # Create assessment result
-            assessment_result = AssessmentResult(
-                assessment_id=st.session_state.current_assessment,
-                document_name=st.session_state.current_document,
-                total_score=total_score,
-                max_total_score=max_total_score,
-                percentage=percentage,
-                question_results=scoring_results,
-                timestamp=datetime.now().isoformat(),
-                time_taken=time_str
-            )
-            
-            # Save results
-            results = st.session_state.scoring_engine.load_scoring_results()
-            results.append(assessment_result)
-            st.session_state.scoring_engine.save_scoring_results(results)
-            
-            # Reset assessment state
-            st.session_state.assessment_mode = False
-            st.session_state.assessment_questions = []
-            st.session_state.user_answers = []
-            st.session_state.current_question_index = 0
-            st.session_state.assessment_start_time = None
-            
-            # Show results
-            st.success("✅ Assessment completed!")
-            st.balloons()
-            
-            # Display score summary
-            st.header("📊 Assessment Results")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Final Score", f"{total_score:.1f}/{max_total_score:.1f}")
-            
-            with col2:
-                st.metric("Percentage", f"{percentage:.1f}%")
-            
-            with col3:
-                if time_str:
-                    st.metric("Time Taken", time_str)
-            
-            # Show detailed results
-            st.markdown("---")
-            st.subheader("📝 Detailed Results")
-            
-            for i, result in enumerate(scoring_results):
-                with st.expander(f"Question {i+1}: {result.score:.1f}/{result.max_score:.1f} points"):
-                    st.markdown(f"**Question:** {result.question}")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown("**Your Answer:**")
-                        st.info(result.user_answer)
-                    
-                    with col2:
-                        st.markdown("**Expected Answer:**")
-                        st.success(result.correct_answer)
-                    
-                    st.markdown("**Feedback:**")
-                    if result.score == result.max_score:
-                        st.success(result.feedback)
-                    elif result.score > 0:
-                        st.info(result.feedback)
-                    else:
-                        st.error(result.feedback)
-            
-            # Action buttons
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("📊 View Assessment History"):
-                    st.session_state.show_history = True
-                    st.rerun()
-            
-            with col2:
-                if st.button("🔄 Take Another Assessment"):
-                    st.rerun()
-                    
-        except Exception as e:
-            st.error(f"Error calculating assessment score: {str(e)}")
-            logger.error(f"Assessment scoring error: {e}")
+        Returns:
+            The value if found, otherwise the default value
+        """
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
 
     def run(self):
         """Main application runner"""
@@ -1546,7 +1602,7 @@ class ChatbotUI:
         
         # Footer
         st.markdown("---")
-        st.markdown("🤖 Powered by Google Gemini AI | Built with ❤️ using Streamlit")
+        st.markdown("🤖 Powered by Google Gemini AI | CLINTON AGEBOBA")
 
 def main():
     """Main entry point"""
