@@ -968,13 +968,35 @@ class ChatbotUI:
             st.markdown("---")
             col1, col2 = st.columns(2)
             
+            # Define callback functions
+            def on_view_history():
+                st.session_state.show_history = True
+            
+            def on_new_assessment():
+                if 'show_history' in st.session_state:
+                    st.session_state.show_history = False
+                st.session_state.assessment_mode = False
+                st.session_state.assessment_questions = []
+                st.session_state.user_answers = []
+                st.session_state.current_question_index = 0
+                st.session_state.assessment_start_time = None
+            
+            # Get a unique key base for the buttons
+            button_key_base = assessment_result.assessment_id
+            
             with col1:
-                if st.button("📊 View Assessment History", key=f"view_history_{assessment_result.assessment_id}"):
-                    st.session_state.show_history = True
+                st.button(
+                    "📊 View Assessment History",
+                    key=f"view_history_{button_key_base}",
+                    on_click=on_view_history
+                )
             
             with col2:
-                if st.button("🔄 Take Another Assessment", key=f"new_assessment_{assessment_result.assessment_id}"):
-                    st.rerun()
+                st.button(
+                    "🔄 Take Another Assessment",
+                    key=f"new_assessment_{button_key_base}",
+                    on_click=on_new_assessment
+                )
                     
         except Exception as e:
             st.error(f"Error calculating assessment score: {str(e)}")
@@ -1462,38 +1484,46 @@ class ChatbotUI:
                 st.markdown("---")
                 st.header("🚀 Quick Actions")
                 
-                if st.button("📝 Summarize Document"):
-                    prompt = self.generate_automated_response("summarize")
-                    st.session_state.chat_history.append(("user", prompt))
-                    with st.spinner("Generating summary..."):
-                        try:
-                            response = st.session_state.qa_chain.run(prompt)
-                            st.session_state.chat_history.append(("assistant", response))
-                        except Exception as e:
-                            st.error(f"Error generating summary: {str(e)}")
-                    st.rerun()
+                # First row with two buttons
+                col1, col2 = st.columns(2)
                 
-                if st.button("📚 Create Study Guide"):
-                    prompt = self.generate_automated_response("study_guide")
-                    st.session_state.chat_history.append(("user", prompt))
-                    with st.spinner("Creating study guide..."):
-                        try:
-                            response = st.session_state.qa_chain.run(prompt)
-                            st.session_state.chat_history.append(("assistant", response))
-                        except Exception as e:
-                            st.error(f"Error creating study guide: {str(e)}")
-                    st.rerun()
+                with col1:
+                    if st.button("📝 Summarize", use_container_width=True):
+                        with st.spinner("Generating summary..."):
+                            try:
+                                response = st.session_state.qa_chain.run(
+                                    "Please provide a comprehensive summary of the current document. Include main topic, key points, findings, and important conclusions."
+                                )
+                                st.session_state.chat_history.append(("user", "Summarize the document"))
+                                st.session_state.chat_history.append(("assistant", response))
+                            except Exception as e:
+                                st.error(f"Error generating summary: {str(e)}")
                 
-                if st.button("❓ Generate Sample Questions"):
-                    prompt = self.generate_automated_response("exam_questions")
-                    st.session_state.chat_history.append(("user", prompt))
+                with col2:
+                    if st.button("📚 Study Guide", use_container_width=True):
+                        with st.spinner("Creating study guide..."):
+                            try:
+                                response = st.session_state.qa_chain.run(
+                                    "Create a detailed study guide that includes main concepts, definitions, important facts, key processes, and critical points to remember."
+                                )
+                                st.session_state.chat_history.append(("user", "Create a study guide"))
+                                st.session_state.chat_history.append(("assistant", response))
+                            except Exception as e:
+                                st.error(f"Error creating study guide: {str(e)}")
+                
+                # Second row with centered button
+                st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                if st.button("❓ Sample Questions", use_container_width=True):
                     with st.spinner("Generating questions..."):
                         try:
-                            response = st.session_state.qa_chain.run(prompt)
+                            response = st.session_state.qa_chain.run(
+                                "Generate a set of potential examination questions including multiple choice, short answer, and essay questions with their answers."
+                            )
+                            st.session_state.chat_history.append(("user", "Generate sample questions"))
                             st.session_state.chat_history.append(("assistant", response))
                         except Exception as e:
                             st.error(f"Error generating questions: {str(e)}")
-                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
                 
                 # Assessment Section
                 st.markdown("---")
@@ -1602,7 +1632,7 @@ class ChatbotUI:
         
         # Footer
         st.markdown("---")
-        st.markdown("🤖 Powered by Google Gemini AI | CLINTON AGEBOBA")
+        st.markdown("<div style='text-align: center;'>🤖 Powered by Google Gemini AI | CLINTON AGEBOBA</div>", unsafe_allow_html=True)
 
 def main():
     """Main entry point"""
