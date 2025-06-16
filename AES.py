@@ -581,6 +581,9 @@ class ChatbotUI:
     def process_uploaded_file(self, uploaded_file):
         """Process the uploaded PDF file"""
         try:
+            # Create a placeholder for status messages
+            status_placeholder = st.empty()
+            
             # Save the uploaded file
             file_path = self.save_uploaded_file(uploaded_file)
             logger.info(f"Processing file: {file_path}")
@@ -591,7 +594,9 @@ class ChatbotUI:
             # If switching to a different document, reset session
             if (st.session_state.current_document_hash and 
                 st.session_state.current_document_hash != file_hash):
-                st.info("Switching to a different document. Resetting chat session...")
+                status_placeholder.info("Switching to a different document. Resetting chat session...")
+                time.sleep(5)
+                status_placeholder.empty()
                 self.reset_document_session()
             
             # Set current document info
@@ -599,10 +604,14 @@ class ChatbotUI:
             st.session_state.current_document_hash = file_hash
             
             if is_processed:
-                st.info("Document already processed. Loading existing analysis...")
+                status_placeholder.info("Document already processed. Loading existing analysis...")
+                time.sleep(5)
+                status_placeholder.empty()
                 st.session_state.vectorstore = self.processor.load_vectorstore(file_hash)
                 if st.session_state.vectorstore is None:
-                    st.warning("Could not load existing analysis. Reprocessing document...")
+                    status_placeholder.warning("Could not load existing analysis. Reprocessing document...")
+                    time.sleep(5)
+                    status_placeholder.empty()
                     self._process_new_file(file_path, uploaded_file, file_hash)
             else:
                 self._process_new_file(file_path, uploaded_file, file_hash)
@@ -612,7 +621,9 @@ class ChatbotUI:
             
         except Exception as e:
             error_msg = f"Error processing file: {str(e)}"
-            st.error(error_msg)
+            status_placeholder.error(error_msg)
+            time.sleep(5)
+            status_placeholder.empty()
             logger.error(error_msg)
             
             # Clean up if file was partially saved
@@ -626,14 +637,22 @@ class ChatbotUI:
     
     def _process_new_file(self, file_path: Path, uploaded_file, file_hash: str):
         """Process a new PDF file"""
+        status_placeholder = st.empty()
+        
         with st.status("Processing PDF...", expanded=True) as status:
-            st.write("📄 Reading PDF content...")
+            status_placeholder.write("📄 Reading PDF content...")
+            time.sleep(5)
+            status_placeholder.empty()
             
             # Process PDF
-            st.write("🔄 Splitting document into chunks...")
+            status_placeholder.write("🔄 Splitting document into chunks...")
+            time.sleep(5)
+            status_placeholder.empty()
             documents = self.processor.process_pdf(file_path)
             
-            st.write("🧮 Creating embeddings and vector store...")
+            status_placeholder.write("🧮 Creating embeddings and vector store...")
+            time.sleep(5)
+            status_placeholder.empty()
             st.session_state.vectorstore = self.processor.create_vectorstore(documents, file_hash)
             
             # Update metadata
@@ -645,7 +664,11 @@ class ChatbotUI:
             }
             self.processor.save_metadata(metadata)
             
+            # Show success message and clear after 5 seconds
             status.update(label="✅ PDF processed successfully!", state="complete")
+            time.sleep(5)
+            status.update(label="", state="complete")
+            status_placeholder.empty()
     
     def create_qa_chain(self):
         """Create the QA chain"""
@@ -1461,6 +1484,9 @@ class ChatbotUI:
                 help=f"Maximum file size: {self.config.MAX_FILE_SIZE_MB}MB"
             )
             
+            # Create a placeholder for status messages
+            status_placeholder = st.empty()
+            
             # Process uploaded file
             if uploaded_file is not None:
                 if self.validate_uploaded_file(uploaded_file):
@@ -1470,14 +1496,18 @@ class ChatbotUI:
                         with st.spinner("Processing document..."):
                             self.process_uploaded_file(uploaded_file)
                     
-                    st.success(f"✅ Document loaded: {uploaded_file.name}")
+                    status_placeholder.success(f"✅ Document loaded: {uploaded_file.name}")
                     
                     # Document info
                     if st.session_state.current_document_hash:
                         metadata = self.processor.load_metadata()
                         if st.session_state.current_document_hash in metadata:
                             doc_info = metadata[st.session_state.current_document_hash]
-                            st.info(f"Chunks: {doc_info.get('chunks_count', 'Unknown')}")
+                            status_placeholder.info(f"Chunks: {doc_info.get('chunks_count', 'Unknown')}")
+                    
+                    # Clear the status message after 5 seconds
+                    time.sleep(5)
+                    status_placeholder.empty()
             
             # Quick Actions
             if st.session_state.vectorstore is not None:
