@@ -7,6 +7,16 @@ from datetime import datetime
 from pathlib import Path
 import logging
 from typing import List, Dict, Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get required environment variables
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    st.error("GOOGLE_API_KEY not found in environment variables. Please check your .env file.")
+    st.stop()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,15 +45,20 @@ class StreamlitCallbackHandler(BaseCallbackHandler):
 class PDFChatbotConfig:
     """Configuration class for the chatbot"""
     def __init__(self):
-        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyAkHRbkUvKvnfzWpoX1pks8hNUc78PXqXs")
+        # Required environment variables
+        self.GOOGLE_API_KEY = GOOGLE_API_KEY
+        
+        # Optional environment variables with defaults
+        self.CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+        self.CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
+        self.MAX_MEMORY_MESSAGES = int(os.getenv("MAX_MEMORY_MESSAGES", "10"))
+        self.MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
+        
+        # Static configurations
         self.PDF_DIR = Path("pdfFiles")
         self.VECTOR_DB_DIR = Path("vectorDB")
         self.METADATA_FILE = Path("pdf_metadata.json")
-        self.CHUNK_SIZE = 1000
-        self.CHUNK_OVERLAP = 200
-        self.MAX_MEMORY_MESSAGES = 10
         self.SUPPORTED_FILE_TYPES = ["pdf"]
-        self.MAX_FILE_SIZE_MB = 50
 
 class PDFProcessor:
     """Handles PDF processing and vectorization"""

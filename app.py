@@ -1,9 +1,18 @@
 import streamlit as st 
 import os
-os.environ["GOOGLE_API_KEY"] = "AIzaSyAkHRbkUvKvnfzWpoX1pks8hNUc78PXqXs"
+from dotenv import load_dotenv
 
-import os 
-import time 
+# Load environment variables from .env file
+load_dotenv()
+
+# Get API key from environment variable
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    st.error("GOOGLE_API_KEY not found in environment variables. Please check your .env file.")
+    st.stop()
+
+import os
+import time
  
 #userprompt 
 from langchain.prompts import PromptTemplate 
@@ -61,14 +70,15 @@ if 'memory' not in st.session_state:
  
 if 'vectorstore' not in st.session_state: 
    st.session_state.vectorstore = Chroma(persist_directory='vectorDb', 
-                                           
-embedding_function=GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key="AIzaSyAkHRbkUvKvnfzWpoX1pks8hNUc78PXqXs")
-                                           ) 
+                                           embedding_function=GoogleGenerativeAIEmbeddings(
+                                               model="models/embedding-001", 
+                                               google_api_key=GOOGLE_API_KEY
+                                           )) 
    
 if 'llm' not in st.session_state: 
    st.session_state.llm = ChatGoogleGenerativeAI(
        model="gemini-1.5-flash",
-       google_api_key="AIzaSyAkHRbkUvKvnfzWpoX1pks8hNUc78PXqXs",
+       google_api_key=GOOGLE_API_KEY,
        temperature=0.2,
        max_output_tokens=2048,
        top_p=1,
@@ -108,7 +118,10 @@ if uploaded_file is not None:
  
            st.session_state.vectorstore = Chroma.from_documents( 
                documents = all_splits, 
-               embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001",google_api_key="AIzaSyAkHRbkUvKvnfzWpoX1pks8hNUc78PXqXs") 
+               embedding = GoogleGenerativeAIEmbeddings(
+                   model="models/embedding-001",
+                   google_api_key=GOOGLE_API_KEY
+               ) 
            ) 
  
            st.session_state.vectorstore.persist() 

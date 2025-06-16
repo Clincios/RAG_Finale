@@ -1,5 +1,16 @@
 import streamlit as st
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get required environment variables
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    st.error("GOOGLE_API_KEY not found in environment variables. Please check your .env file.")
+    st.stop()
+
 import time
 import hashlib
 import json
@@ -35,15 +46,20 @@ class StreamlitCallbackHandler(BaseCallbackHandler):
 class PDFChatbotConfig:
     """Configuration class for the chatbot"""
     def __init__(self):
-        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "YOUR_API_KEY_HERE")
+        # Required environment variables
+        self.GOOGLE_API_KEY = GOOGLE_API_KEY
+        
+        # Optional environment variables with defaults
+        self.CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+        self.CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
+        self.MAX_MEMORY_MESSAGES = int(os.getenv("MAX_MEMORY_MESSAGES", "10"))
+        self.MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
+        
+        # Static configurations
         self.PDF_DIR = Path("pdfFiles")
         self.VECTOR_DB_DIR = Path("vectorDB")
         self.METADATA_FILE = Path("pdf_metadata.json")
-        self.CHUNK_SIZE = 1000
-        self.CHUNK_OVERLAP = 200
-        self.MAX_MEMORY_MESSAGES = 10
         self.SUPPORTED_FILE_TYPES = ["pdf"]
-        self.MAX_FILE_SIZE_MB = 50
 
 class PDFProcessor:
     """Handles PDF processing and vectorization"""
@@ -179,7 +195,7 @@ class ChatbotUI:
                 google_api_key=self.config.GOOGLE_API_KEY,
                 temperature=0.1,
                 max_output_tokens=4096,
-                streaming=True
+                model_kwargs={"streaming": True}
             )
         
         if 'chat_history' not in st.session_state:
@@ -243,7 +259,12 @@ class ChatbotUI:
                     documents = self.processor.process_pdf(file_path)
                     
                     st.write("🧮 Creating embeddings and vector store...")
-                    st.session_state.vectorstore = self.processor.create_vectorstore(documents)
+                    st.session_state.vectorstore = Chroma.from_documents(
+                        documents=documents,
+                        embedding=self.processor.embeddings,
+                        persist_directory=str(self.config.VECTOR_DB_DIR)
+                    )
+                    st.session_state.vectorstore.persist()
                     
                     # Update metadata
                     metadata = self.processor.load_metadata()
