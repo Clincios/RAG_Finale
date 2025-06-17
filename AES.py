@@ -526,6 +526,12 @@ class ChatbotUI:
         
         if 'assessment_start_time' not in st.session_state:
             st.session_state.assessment_start_time = None
+        
+        if 'show_results' not in st.session_state:
+            st.session_state.show_results = False
+        
+        if 'assessment_results' not in st.session_state:
+            st.session_state.assessment_results = None
     
     def reset_document_session(self):
         """Reset session for new document"""
@@ -543,6 +549,8 @@ class ChatbotUI:
         st.session_state.current_question_index = 0
         st.session_state.user_answers = []
         st.session_state.assessment_start_time = None
+        st.session_state.show_results = False
+        st.session_state.assessment_results = None
         
         logger.info("Document session reset")
     
@@ -891,139 +899,160 @@ class ChatbotUI:
             results.append(assessment_result)
             st.session_state.scoring_engine.save_scoring_results(results)
             
+            # Store results in session state for display in main area
+            st.session_state.assessment_results = {
+                'assessment_result': assessment_result,
+                'scoring_results': scoring_results,
+                'total_score': total_score,
+                'max_total_score': max_total_score,
+                'percentage': percentage,
+                'time_str': time_str
+            }
+            
             # Reset assessment state
             st.session_state.assessment_mode = False
             st.session_state.assessment_questions = []
             st.session_state.user_answers = []
             st.session_state.current_question_index = 0
             st.session_state.assessment_start_time = None
+            st.session_state.show_results = True
             
-            # Show results with celebration
-            st.success("🎉 Assessment completed successfully!")
-            st.balloons()
-            
-            # Display comprehensive score summary
-            st.header("📊 Assessment Results")
-            
-            # Main metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Final Score", f"{total_score:.1f}/{max_total_score:.1f}")
-            
-            with col2:
-                st.metric("Percentage", f"{percentage:.1f}%")
-            
-            with col3:
-                st.metric("Questions Answered", len(scoring_results))
-            
-            with col4:
-                if time_str:
-                    st.metric("Time Taken", time_str)
-            
-            # Performance grade
-            if percentage >= 90:
-                st.success("🏆 Outstanding Performance! Grade: A")
-            elif percentage >= 80:
-                st.success("🌟 Excellent Work! Grade: B")
-            elif percentage >= 70:
-                st.info("👍 Good Job! Grade: C")
-            elif percentage >= 60:
-                st.warning("📚 Satisfactory. Grade: D")
-            else:
-                st.error("🔄 Needs Improvement. Grade: F")
-            
-            # Show detailed results immediately
-            st.markdown("---")
-            st.header("📝 Detailed Question Analysis")
-            
-            # Quick performance overview
-            correct_count = sum(1 for r in scoring_results if r.score == r.max_score)
-            partial_count = sum(1 for r in scoring_results if 0 < r.score < r.max_score)
-            incorrect_count = sum(1 for r in scoring_results if r.score == 0)
-            
-            overview_col1, overview_col2, overview_col3 = st.columns(3)
-            with overview_col1:
-                st.success(f"✅ Fully Correct: {correct_count}")
-            with overview_col2:
-                st.info(f"🔶 Partially Correct: {partial_count}")
-            with overview_col3:
-                st.error(f"❌ Incorrect: {incorrect_count}")
-            
-            # Display each question result in detail
-            for i, result in enumerate(scoring_results):
-                st.markdown("---")
-                st.subheader(f"Question {i+1}")
-                
-                # Question and scoring
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.markdown(f"**Question:** {result.question}")
-                with col2:
-                    score_color = "success" if result.score == result.max_score else "info" if result.score > 0 else "error"
-                    st.markdown(f"**Score:** {result.score:.1f}/{result.max_score:.1f}", help=f"Question {i+1} Score")
-                
-                # Answers comparison
-                st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Your Answer:</span>", unsafe_allow_html=True)
-                if result.score == result.max_score:
-                    st.success(result.user_answer)
-                elif result.score > 0:
-                    st.info(result.user_answer)
-                else:
-                    st.error(result.user_answer)
-                
-                st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Expected Answer:</span>", unsafe_allow_html=True)
-                st.success(result.correct_answer)
-                
-                # Feedback
-                if hasattr(result, 'feedback') and result.feedback:
-                    st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Feedback:</span>", unsafe_allow_html=True)
-                    feedback_container = st.container()
-                    with feedback_container:
-                        if result.score == result.max_score:
-                            st.success(result.feedback)
-                        elif result.score > 0:
-                            st.info(result.feedback)
-                        else:
-                            st.error(result.feedback)
-            
-            # Action buttons
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            
-            # Define callback functions
-            def on_view_history():
-                st.session_state.show_history = True
-            
-            def on_new_assessment():
-                if 'show_history' in st.session_state:
-                    st.session_state.show_history = False
-                st.session_state.assessment_mode = False
-                st.session_state.assessment_questions = []
-                st.session_state.user_answers = []
-                st.session_state.current_question_index = 0
-                st.session_state.assessment_start_time = None
-            
-            # Get a unique key base for the buttons
-            button_key_base = assessment_result.assessment_id
-            
-            with col1:
-                st.button(
-                    "📊 View Assessment History",
-                    key=f"view_history_{button_key_base}",
-                    on_click=on_view_history
-                )
-            
-            with col2:
-                st.button(
-                    "🔄 Take Another Assessment",
-                    key=f"new_assessment_{button_key_base}",
-                    on_click=on_new_assessment
-                )
+            # Redirect to main area to show results
+            st.rerun()
                     
         except Exception as e:
             st.error(f"Error calculating assessment score: {str(e)}")
             logger.error(f"Assessment scoring error: {e}")
+
+    def display_assessment_results(self):
+        """Display comprehensive assessment results in the main content area"""
+        if not hasattr(st.session_state, 'assessment_results') or not st.session_state.assessment_results:
+            return
+        
+        results = st.session_state.assessment_results
+        
+        # Show results with celebration
+        st.success("🎉 Assessment completed successfully!")
+        st.balloons()
+        
+        # Display comprehensive score summary
+        st.header("📊 Assessment Results")
+        
+        # Main metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Final Score", f"{results['total_score']:.1f}/{results['max_total_score']:.1f}")
+        
+        with col2:
+            st.metric("Percentage", f"{results['percentage']:.1f}%")
+        
+        with col3:
+            st.metric("Questions Answered", len(results['scoring_results']))
+        
+        with col4:
+            if results['time_str']:
+                st.metric("Time Taken", results['time_str'])
+        
+        # Performance grade
+        if results['percentage'] >= 90:
+            st.success("🏆 Outstanding Performance! Grade: A")
+        elif results['percentage'] >= 80:
+            st.success("🌟 Excellent Work! Grade: B")
+        elif results['percentage'] >= 70:
+            st.info("👍 Good Job! Grade: C")
+        elif results['percentage'] >= 60:
+            st.warning("📚 Satisfactory. Grade: D")
+        else:
+            st.error("🔄 Needs Improvement. Grade: F")
+        
+        # Show detailed results immediately
+        st.markdown("---")
+        st.header("📝 Detailed Question Analysis")
+        
+        # Quick performance overview
+        correct_count = sum(1 for r in results['scoring_results'] if r.score == r.max_score)
+        partial_count = sum(1 for r in results['scoring_results'] if 0 < r.score < r.max_score)
+        incorrect_count = sum(1 for r in results['scoring_results'] if r.score == 0)
+        
+        overview_col1, overview_col2, overview_col3 = st.columns(3)
+        with overview_col1:
+            st.success(f"✅ Fully Correct: {correct_count}")
+        with overview_col2:
+            st.info(f"🔶 Partially Correct: {partial_count}")
+        with overview_col3:
+            st.error(f"❌ Incorrect: {incorrect_count}")
+        
+        # Display each question result in detail
+        for i, result in enumerate(results['scoring_results']):
+            st.markdown("---")
+            st.subheader(f"Question {i+1}")
+            
+            # Question and scoring
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(f"**Question:** {result.question}")
+            with col2:
+                score_color = "success" if result.score == result.max_score else "info" if result.score > 0 else "error"
+                st.markdown(f"**Score:** {result.score:.1f}/{result.max_score:.1f}", help=f"Question {i+1} Score")
+            
+            # Answers comparison
+            st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Your Answer:</span>", unsafe_allow_html=True)
+            if result.score == result.max_score:
+                st.success(result.user_answer)
+            elif result.score > 0:
+                st.info(result.user_answer)
+            else:
+                st.error(result.user_answer)
+            
+            st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Expected Answer:</span>", unsafe_allow_html=True)
+            st.success(result.correct_answer)
+            
+            # Feedback
+            if hasattr(result, 'feedback') and result.feedback:
+                st.markdown("<span style='font-size: 0.9em; font-weight: bold;'>Feedback:</span>", unsafe_allow_html=True)
+                feedback_container = st.container()
+                with feedback_container:
+                    if result.score == result.max_score:
+                        st.success(result.feedback)
+                    elif result.score > 0:
+                        st.info(result.feedback)
+                    else:
+                        st.error(result.feedback)
+        
+        # Action buttons
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        
+        # Define callback functions
+        def on_view_history():
+            st.session_state.show_history = True
+            st.session_state.show_results = False
+        
+        def on_new_assessment():
+            st.session_state.show_results = False
+            st.session_state.assessment_mode = False
+            st.session_state.assessment_questions = []
+            st.session_state.user_answers = []
+            st.session_state.current_question_index = 0
+            st.session_state.assessment_start_time = None
+        
+        # Get a unique key base for the buttons
+        button_key_base = results['assessment_result'].assessment_id
+        
+        with col1:
+            st.button(
+                "📊 View Assessment History",
+                key=f"view_history_{button_key_base}",
+                on_click=on_view_history
+            )
+        
+        with col2:
+            st.button(
+                "🔄 Take Another Assessment",
+                key=f"new_assessment_{button_key_base}",
+                on_click=on_new_assessment
+            )
 
     def display_assessment_history(self):
         """Display comprehensive assessment history with analytics"""
@@ -1524,7 +1553,7 @@ class ChatbotUI:
                                 response = st.session_state.qa_chain.run(
                                     "Please provide a comprehensive summary of the current document. Include main topic, key points, findings, and important conclusions."
                                 )
-                                st.session_state.chat_history.append(("user", "Summarize the document"))
+                                st.session_state.chat_history.append(("user", "**Document Summary**"))
                                 st.session_state.chat_history.append(("assistant", response))
                             except Exception as e:
                                 st.error(f"Error generating summary: {str(e)}")
@@ -1536,7 +1565,7 @@ class ChatbotUI:
                                 response = st.session_state.qa_chain.run(
                                     "Create a detailed study guide that includes main concepts, definitions, important facts, key processes, and critical points to remember."
                                 )
-                                st.session_state.chat_history.append(("user", "Create a study guide"))
+                                st.session_state.chat_history.append(("user", "**A Study Guide**"))
                                 st.session_state.chat_history.append(("assistant", response))
                             except Exception as e:
                                 st.error(f"Error creating study guide: {str(e)}")
@@ -1549,7 +1578,7 @@ class ChatbotUI:
                             response = st.session_state.qa_chain.run(
                                 "Generate a set of potential examination questions including multiple choice, short answer, and essay questions with their answers."
                             )
-                            st.session_state.chat_history.append(("user", "Generate sample questions"))
+                            st.session_state.chat_history.append(("user", "**Sample Test Questions**"))
                             st.session_state.chat_history.append(("assistant", response))
                         except Exception as e:
                             st.error(f"Error generating questions: {str(e)}")
@@ -1605,8 +1634,11 @@ class ChatbotUI:
             3. Start chatting or take an assessment!
             """)
         else:
+            # Check if we should show assessment results
+            if getattr(st.session_state, 'show_results', False):
+                self.display_assessment_results()
             # Check if we should show assessment interface
-            if st.session_state.assessment_mode:
+            elif st.session_state.assessment_mode:
                 self.display_assessment_interface()
             elif getattr(st.session_state, 'show_history', False):
                 self.display_assessment_history()
