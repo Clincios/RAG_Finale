@@ -11,6 +11,10 @@ import shutil
 import re
 from dataclasses import dataclass, asdict
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -66,17 +70,24 @@ class AssessmentResult:
 class PDFChatbotConfig:
     """Configuration class for the chatbot"""
     def __init__(self):
-        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyAkHRbkUvKvnfzWpoX1pks8hNUc78PXqXs")
+        # Load API key from environment variable
+        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+        if not self.GOOGLE_API_KEY:
+            raise ValueError(
+                "GOOGLE_API_KEY environment variable is not set. "
+                "Please create a .env file with your Google API key: GOOGLE_API_KEY=your_api_key_here"
+            )
+        
         self.PDF_DIR = Path("pdfFiles")
         self.VECTOR_DB_DIR = Path("vectorDB")
         self.METADATA_FILE = Path("pdf_metadata.json")
         self.ASSESSMENTS_DIR = Path("assessments")
         self.SCORING_RESULTS_FILE = Path("scoring_results.json")
-        self.CHUNK_SIZE = 1000
-        self.CHUNK_OVERLAP = 200
-        self.MAX_MEMORY_MESSAGES = 10
+        self.CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+        self.CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
+        self.MAX_MEMORY_MESSAGES = int(os.getenv("MAX_MEMORY_MESSAGES", "10"))
         self.SUPPORTED_FILE_TYPES = ["pdf"]
-        self.MAX_FILE_SIZE_MB = 50
+        self.MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
 
 class ScoringEngine:
     """Handles automated scoring functionality"""
