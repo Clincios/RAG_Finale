@@ -1,0 +1,58 @@
+# PDF Assistant with Automated Scoring - Requirements
+# Core dependencies for the RAG system with automated assessment capabilities
+
+# Streamlit for web interface
+streamlit>=1.28.0
+
+# LangChain and related packages for RAG functionality
+langchain>=0.3.25
+langchain-community>=0.3.24
+langchain-core>=0.3.61
+langchain-google-genai>=2.1.4
+langchain-text-splitters>=0.3.8
+
+# Google AI/Generative AI
+google-generativeai>=0.6.18
+
+# Vector database
+chromadb>=1.0.12
+
+# Document processing
+PyPDF2>=3.0.0
+pypdf>=3.17.0
+
+# Data manipulation and analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization
+plotly>=5.15.0
+
+# HTTP and API handling
+httpx>=0.28.1
+aiohttp>=3.11.18
+
+# File handling and utilities
+pathlib2>=2.3.7
+python-dotenv>=1.0.0
+
+# Date and time handling
+python-dateutil>=2.8.2
+
+# JSON handling
+jsonschema>=4.23.0
+
+# Logging and monitoring
+coloredlogs>=15.0.1
+
+# Security and hashing
+bcrypt>=4.3.0
+
+# Optional: For enhanced PDF processing (if needed)
+# pdfplumber>=0.9.0
+# pdf2image>=1.16.3
+
+# Development and testing (optional)
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0 
